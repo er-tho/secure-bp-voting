@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en-GB" prefix="og: http://ogp.me/ns#">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="profile" href="http://gmpg.org/xfn/11">
+    <title>Vote &bull; franceos</title>
+
+    <link rel='dns-prefetch' href='//fonts.googleapis.com' />
+    <link rel='dns-prefetch' href='//s.w.org' />
+    <link rel='stylesheet' href='css/reset.css?ver=f1266d' type='text/css' media='all' />
+    <link rel='stylesheet' href='css/css.css' type='text/css' media='all' />
+
+    <script src="js/eos.js" integrity="sha384-WNs0Z8GNG6GOaOTMk3Fogkdbx4/EbfCAeC8ecV5mxJq93CCnHS6tERnbwm3W15OF"></script>
+
+    <script>
+
+        let g_api_endpoint = "https://api.franceos.fr"; //"https://testnetnode.franceos.fr"; //jungle testnet
+        let g_chain_id = "";
+        let g_block_num = "";
+        let g_ref_block_prefix = "";
+        let g_minutes_before_expiration = 10;
+
+        function handle_error(error) {
+            console.error(error);
+            document.getElementById('info_message').innerText = error.message;
+            document.getElementById('info_message').className = "error";
+        }
+
+        function clear_info_message() {
+            document.getElementById('info_message').innerText = "";
+            document.getElementById('info_message').className = "";
+        }
+
+        function load() {
+            document.getElementById("radioVoteMode").checked = true;
+
+            eos = Eos({httpEndpoint: g_api_endpoint});
+
+            eos.getInfo({}).then(function(result){
+                g_chain_id = result.chain_id;
+                eos.getBlock(result.last_irreversible_block_num).then(
+                    function(result) {
+                        g_block_num = result.block_num;
+                        g_ref_block_prefix = result.ref_block_prefix;
+
+                        console.log("Connected - chain_id: " + g_chain_id + " block_num:" + g_block_num + " ref_block_prefix:" + g_ref_block_prefix);
+
+                        document.getElementById('chainId').value = g_chain_id;
+                        document.getElementById('block_num').value = g_block_num;
+                        document.getElementById('ref_block_prefix').value = g_ref_block_prefix;
+                    }
+                )
+            }, handle_error);
+        }
+
+        function generate_transaction() {
+            clear_info_message();
+
+            if (g_chain_id === ""
+                || g_block_num === ""
+                || g_ref_block_prefix === "") {
+                handle_error({message: "Chain informations could not be loaded from the API."});
+                return;
+            }
+
+            let account_name = document.getElementById('account_name').value;
+            let private_key = document.getElementById('private_key').value;
+            let block_producers = document.getElementById('bp').value;
+            block_producers = block_producers.split(',').map(
+                function (s) {
+                    return s.trim();
+                }
+            ).sort(
+                function (a, b) {
+                    return parseInt(Eos.modules.format.encodeName(a, false)) - parseInt(Eos.modules.format.encodeName(b, false));
+                }
+            );
+            let expireInSeconds = 60 * g_minutes_before_expiration;
+            let block_num = g_block_num;
+            let chainId = g_chain_id;
+            let ref_block_num = block_num & 0xFFFF;
+            let ref_block_prefix = g_ref_block_prefix;
+
+            let options = {
+                broadcast: false,
+                sign: true,
+                authorization: account_name
+            };
+
+            let headers = {
+                ref_block_num: ref_block_num,
+                ref_block_prefix: ref_block_prefix,
+                expiration: new Date(new Date().getTime() + expireInSeconds * 1000).toISOString().split('.')[0],
+                net_usage_words: 0,
+                max_cpu_usage_ms: 0,
+                delay_sec: 0
+            };
+
+            let EOS = Eos({
+                keyProvider: private_key,
+                transactionHeaders: function (_, callback) {
+                    callback(null, headers)
+                },
+                broadcast: false,
+                sign: true,
+                chainId: chainId,
+                // checkChainId: false - enable after merge of https://github.com/EOSIO/eosjs/pull/179
+            });
+
+
+            EOS.transaction(
+                function (tr) {
+                    tr.voteproducer({
+                        'voter': account_name,
+                        'proxy': '',
+                        'producers': block_producers
+                    });
+                },
+                options
+            ).then(function (result) {
+                    let jsonTransaction = JSON.stringify(result['transaction'], null, "    ");
+                    console.log(jsonTransaction);
+                    send_transaction(jsonTransaction);
+                },
+                handle_error
+            );
+        }
+
+        function send_transaction(raw_transaction) {
+            clear_info_message();
+
+            try {
+                raw_transaction = JSON.parse(raw_transaction);
+
+                Eos({
+                    httpEndpoint: g_api_endpoint,
+                    broadcast: true,
+                }).pushTransaction(raw_transaction).then(
+                    function(result){
+                        console.log("SUCCESS " + JSON.stringify(result, null, "    "));
+                        
+                        let account_name = result.processed.action_traces[0].act.data["voter"];
+
+                        document.getElementById('info_message').innerHTML = "Thank you for your vote to the EOS block produce !<br>"
+                                                                            + "Account name: <a href=\"https://eosflare.io/account/" + account_name + "\">" + account_name + "</a>"
+                                                                            + " Transction ID: <a href=\"http://eosflare.io/tx/" + result.transaction_id + "\">" + result.transaction_id + "</a>";
+                        document.getElementById('info_message').className = "success";
+                    },
+                    handle_error
+                );
+
+            } catch(error) {
+                handle_error(error);
+            }
+        }
+
+        function get_account_name() {
+            clear_info_message();
+            document.getElementById('account_name_information').style.display = "none";
+
+            if (g_chain_id === ""
+                || g_block_num === ""
+                || g_ref_block_prefix === "") {
+                handle_error({message: "Chain informations could not be loaded from the API."});
+                return;
+            }
+
+            let public_key = document.getElementById('public_key').value;
+
+            if (public_key === "") {
+                handle_error({message: "Public Key required."});
+                return;
+            }
+
+            eos.getKeyAccounts({ "public_key": public_key }).then(function(result) {
+                if (typeof result === undefined
+                    || result.account_names.length === 0
+                    || typeof result.account_names[0] === undefined) {
+                    handle_error({message: "Cannot find an account name for this public key."});
+                    return;
+                }
+
+                document.getElementById('account_name').value = result.account_names[0];
+                let account_message = "The account namme attached to the public key: ";
+                let x = 0;
+                while (x < result.account_names.length) {
+                    account_message += "<a href=\"https://eosflare.io/account/" + result.account_names[x] + "\">" + result.account_names[x] + "</a>";
+                    if (x + 1 !== result.account_names.length)
+                        account_message += ", ";
+                    ++x;
+                }
+
+                document.getElementById('account_name_information').innerHTML = account_message;
+                document.getElementById('account_name_information').style.display = "block";
+
+                if (!document.getElementById("radioVoteMode").checked) {
+                    document.getElementById('account_search').style.display = "block";
+                }
+            }, handle_error);
+
+        }
+
+        function setFranceosBPList() {
+            document.getElementById('bp').value = "franceosysbp, blockmatrix1, saltblockeos, eosvenezuela, libertyblock, eosnationftw, tokenika4eos, teamgreymass, cryptolions1";
+        }
+
+        function selectVoteMode() {
+            if (document.getElementById("radioVoteMode").checked) {
+                document.getElementById("online-vote").style.display = "block";
+                document.getElementById("offline-vote").style.display = "none";
+
+                document.getElementById('account_search').style.display = "none";
+
+                document.getElementById('account_name').required = true;
+                document.getElementById('private_key').required = true;
+                document.getElementById('bp').required = true;
+                document.getElementById('raw_transaction').required = false;
+            } else {
+                document.getElementById("online-vote").style.display = "none";
+                document.getElementById("offline-vote").style.display = "block";
+
+
+                document.getElementById('account_name').required = false;
+                document.getElementById('private_key').required = false;
+                document.getElementById('bp').required = false;
+                document.getElementById('raw_transaction').required = true;
+            }
+        }
+
+        function do_transaction() {
+            if (document.getElementById("radioVoteMode").checked) {
+                generate_transaction();
+            } else {
+                send_transaction(document.getElementById('raw_transaction').value);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            load();
+        });
+    </script>
+</head>
+
+<body class="">
+<div class="top-announcement">
+    <span class="top-announcement-text">Vote for franceos as block producer!</span><br>
+    BP ID : <span class="top-announcement-bp-id">franceosysbp</span>
+</div>
+
+<div class="cryptro-body-outer-wrapper ">
+    <div class="clearfix">
+        <div class="cryptro-header-background-transparent" >
+            <header class="cryptro-header-style-plain">
+                <div class="cryptro-container">
+
+                    <div class="cryptro-header-container-inner clearfix">
+                        <div class="cryptro-logo">
+                            <div class="cryptro-logo-inner">
+                                <a href="https://www.franceos.fr" target="_blank"><img src="img/franceos-logos-dark-15-800x196.png"></a></div>
+                        </div>
+                        <div class="cryptro-navigation" >
+                            <div class="cryptro-main-menu" id="cryptro-main-menu" >
+                                <ul class="sf-menu">
+                                    <li  class="menu-item"><a href="https://www.franceos.fr" target="_blank">Main website</a></li>
+                                    <li  class="menu-item"><a href="https://www.franceos.fr/blog/" target="_blank">Blog</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </header>
+        </div>
+        <div class="cryptro-page-title-wrap" >
+            <div class="cryptro-header-transparent-substitute" style="height: 116px;"></div>
+            <div class="cryptro-container" >
+                <div class="cryptro-page-title-content"><h1 class="cryptro-page-title">Vote for your favourite block producers !</h1></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="cryptro-page-wrapper" id="cryptro-page-wrapper" >
+    <div class="cryptro-container" >
+
+        <p>
+            <span class="top-announcement-text">Vote for franceos as block producer!</span><br><br>
+            Before voting, be sure to be on <a href="https://www.franceos.fr/">https://www.franceos.fr/</a> website.<br>
+        </p>
+
+        <p>If you do not know your account name, you can use your public key to retrieve it:</p>
+
+        <form action="javascript:get_account_name()">
+            <p>
+                <label for="public_key" class="input-vote">EOS Public Key</label>
+                <input type="text" name="public_key" id="public_key" value="" style="width: 300px;margin-right:10px;"><input type="submit" value="Get account name">
+            </p>
+        </form>
+        <div id="account_name_information"></div>
+        <hr>
+
+        <div id="info_message"></div>
+
+        <p>Voting for the block producers require your account name and the associated private key.</p>
+        <p>
+            franceos gives you the possibility to create your transaction online or offline to vote.<br>
+            <ul>
+                <li>Offline : gives you the ability to create your transaction with your private key on a different device, sign it and send it via this page.</li>
+                <li>Online : create and send the voting transaction directly from this page.</li>
+            </ul>
+        </p>
+        <p>Your private key is only used locally to create securely the vote request to and send it to the EOS blockchain through franceos API servers. Your private key will never be sent outside this page.</p>
+
+        <form action="javascript:do_transaction()">
+
+            <p>
+                <label for="account_name" class="input-vote">Vote mode</label>
+                <input type="radio" value="1" checked="checked" name="radioVoteMode" onchange="selectVoteMode();" id="radioVoteMode">Online
+                <input type="radio" value="0" name="radioVoteMode" onchange="selectVoteMode();">Offline
+            </p>
+
+            <div id="online-vote">
+                <p>
+                    <label for="account_name" class="input-vote">Your Account Name</label>
+                    <input type="text" name="account_name" id="account_name" value="" required>
+                </p>
+
+                <p>
+                    <label for="private_key" class="input-vote">EOS Private Key</label>
+                    <input type="text" name="private_key" id="private_key" autocomplete="off" value="" style="width: 700px;" required>
+                </p>
+
+                <p>
+                    <label for="bp" class="input-vote">Block Producers</label>
+                    <input type="text" name="bp" id="bp" value="franceosysbp" style="width: 700px;" placeholder="Coma separated list of block producers account names (no more than 30). Example: alpha, beta, gamma" required><br>
+                    <span class="input-vote"></span>Franceos block producer name : <span class="top-announcement-bp-id">franceosysbp</span><br>
+                    <span class="input-vote"></span>We also support : <span class="top-announcement-bp-id">blockmatrix1, saltblockeos, eosvenezuela, libertyblock, eosnationftw, tokenika4eos, teamgreymass, cryptolions1</span> <a onclick="setFranceosBPList()">Support them !</a><br>
+                    <span class="input-vote"></span>Are you a block producer looking to join forces with us ? <a href="https://www.franceos.fr/en/contact-us/">Contact us !</a>
+                </p>
+            </div>
+
+            <div id="offline-vote">
+                <p>For an offline and secure vote, please download the following page on your secure device and fill it using this information :</p>
+                <p><a href="franceos-offline-vote.html" download>franceos-offline-vote.html</a><var>  sha256 - 0b2b7c58528d2ddff14197eefb1d8477a38aad521e35cd160e4b8247675f8904</var></p>
+
+                <label for="chainId" class="input-vote">Chain ID</label>
+                <input type="text" name="chainId" id="chainId" value="" readonly style="width: 500px"><br>
+
+                <label for="block_num" class="input-vote">Block num</label>
+                <input type="text" name="block_num" id="block_num" value="" readonly><br>
+
+                <label for="ref_block_prefix" class="input-vote">Ref block prefix</label>
+                <input type="text" name="ref_block_prefix" id="ref_block_prefix" value="" readonly><br>
+
+                <br>
+                <p>
+                    <label for="raw_transaction">Copy the generated voting transaction here :</label><br>
+                    <textarea id="raw_transaction" style="display:inline-block; vertical-align:middle; width: 1000px; height: 400px; font-size: 0.7em"></textarea>
+                </p>
+            </div>
+
+            <p><span class="input-vote"></span>Note : the provided EOS private key is only processed for purposes on the local page of your device, it is in no case communicated ulteriorly.</p>
+
+            <p><span class="input-vote"></span><input type="submit" value="Send vote"></p>
+        </form>
+
+        <br><br>
+        <p>
+           This vote page is based on the project <a href="https://github.com/tokenika/secure-bp-voting/">Secure EOS Block Producer</a> and is using the <a href="https://api.franceos.fr">franceos API EOS server</a>.
+        </p>
+
+    </div>
+</div>
+
+<footer>
+    <div class="cryptro-footer-wrapper" >
+        <div class="cryptro-container clearfix" >
+            <div style="float:left;width:50%;">
+                <div class="widget_media_image">
+                    <a href="https://www.franceos.fr" target="_blank"><img src="img/franceos-logo-footer1-24.svg"style="max-width: 100%; height: auto;" /></a>
+                </div>
+            </div>
+            <div style="float:left;width:50%;">
+                <h3 class="cryptro-widget-title">Follow franceos</h3>
+
+                <div class="clearfix follow-links">
+                    <a href="https://github.com/franceos" target="_blank"><img src="img/franceos-github-icon-27.svg" alt=""></a>
+                    <a href="https://steemit.com/@franceos" target="_blank"><img src="img/franceos-steemit-icon-28.svg" alt=""></a>
+                    <a href="https://t.me/franceos" target="_blank"><img src="img/franceos-telegram-icon-29.svg" alt=""></a>
+                    <a href="https://twitter.com/franceos__" target="_blank"><img src="img/franceos-twitter-icon-30.svg" alt=""></a>
+                    <a href="https://www.franceos.fr/contact" target="_blank"><img src="img/franceos-mail-icon-26.svg" alt=""></a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="cryptro-copyright-wrapper" >
+        <div class="cryptro-copyright-container cryptro-container clearfix">
+            <div class="cryptro-copyright-left cryptro-item-pdlr">Copyright © 2018, All Right Reserved</div>
+        </div>
+    </div>
+</footer>
+</body>
+</html>

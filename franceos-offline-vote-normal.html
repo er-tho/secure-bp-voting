@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en-GB" prefix="og: http://ogp.me/ns#">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="profile" href="http://gmpg.org/xfn/11">
+    <title>Offline voting transaction generator &bull; franceos</title>
+
+    <link rel='dns-prefetch' href='//fonts.googleapis.com' />
+    <link rel='dns-prefetch' href='//s.w.org' />
+    <link rel='stylesheet' href='css/reset.css' type='text/css' media='all' />
+    <link rel='stylesheet' href='css/css.css' type='text/css' media='all' />
+    <script src="js/eos.js" integrity="sha384-WNs0Z8GNG6GOaOTMk3Fogkdbx4/EbfCAeC8ecV5mxJq93CCnHS6tERnbwm3W15OF"></script>
+
+    <script>
+
+        let g_minutes_before_expiration = 10;
+
+        function handle_error(error) {
+            console.error(error);
+            document.getElementById('info_message').innerText = error.message;
+            document.getElementById('info_message').className = "error";
+        }
+
+        function clear_info_message() {
+            document.getElementById('info_message').innerText = "";
+            document.getElementById('info_message').className = "";
+        }
+
+        function generate_transaction(){
+            clear_info_message();
+
+            let account_name = document.getElementById('account_name').value;
+            let private_key = document.getElementById('private_key').value;
+            let block_producers = document.getElementById('bp').value;
+            block_producers = block_producers.split(',').map(
+                function(s){return s.trim();}
+            ).sort(
+                function(a, b){return parseInt(Eos.modules.format.encodeName(a, false)) - parseInt(Eos.modules.format.encodeName(b, false));}
+            );
+            let expireInSeconds = 60 * g_minutes_before_expiration;
+            let block_num = +document.getElementById('block_num').value;
+            let chainId = document.getElementById('chainId').value;
+            let ref_block_num = block_num & 0xFFFF;
+            let ref_block_prefix = +document.getElementById('ref_block_prefix').value;
+
+            let options = {
+                broadcast: false,
+                sign: true,
+                authorization: account_name
+            };
+
+            let headers = {
+                ref_block_num: ref_block_num,
+                ref_block_prefix: ref_block_prefix,
+                expiration: new Date(new Date().getTime() + expireInSeconds * 1000).toISOString().split('.')[0],
+                net_usage_words: 0,
+                max_cpu_usage_ms: 0,
+                delay_sec: 0
+            };
+
+            let EOS = Eos({
+                keyProvider: private_key,
+                transactionHeaders: function(_, callback) {
+                    callback(null, headers)
+                },
+                broadcast: false,
+                sign: true,
+                chainId: chainId,
+                // checkChainId: false - enable after merge of https://github.com/EOSIO/eosjs/pull/179
+            });
+
+
+            EOS.transaction(
+                function(tr){
+                    tr.voteproducer({
+                        'voter': account_name,
+                        'proxy': '',
+                        'producers': block_producers
+                    });
+                },
+                options
+            ).then(function(result){
+                    document.getElementById('raw_transaction').value = JSON.stringify(result['transaction'], null, "    ");
+                    document.getElementById('transaction').style.display = "block";
+                }, handle_error
+            );
+        }
+
+        function setFranceosBPList() {
+            document.getElementById('bp').value = "franceosysbp, blockmatrix1, saltblockeos, eosvenezuela, libertyblock, eosnationftw, tokenika4eos, teamgreymass, cryptolions1";
+        }
+
+        function copyRawTransaction() {
+            document.getElementById("raw_transaction").select();
+            document.execCommand("copy");
+        }
+
+    </script>
+    <style>
+        li, input {
+            margin: 5px 0;
+        }
+        input[type=number]{
+            text-align: right;
+        }
+    </style>
+</head>
+<body class="">
+<div class="top-announcement">
+    <span class="top-announcement-text">Vote for franceos as block producer !</span><br>
+    BP ID : <span class="top-announcement-bp-id">franceosysbp</span>
+</div>
+
+<div class="cryptro-body-outer-wrapper ">
+    <div class="clearfix">
+        <div class="cryptro-header-background-transparent" >
+            <header class="cryptro-header-style-plain">
+                <div class="cryptro-container">
+
+                    <div class="cryptro-header-container-inner clearfix">
+                        <div class="cryptro-logo">
+                            <div class="cryptro-logo-inner">
+                                <img src="img/franceos-logos-dark-15-800x196.png">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </header>
+        </div>
+        <div class="cryptro-page-title-wrap" >
+            <div class="cryptro-header-transparent-substitute" style="height: 116px;"></div>
+            <div class="cryptro-container" >
+                <div class="cryptro-page-title-content"><h1 class="cryptro-page-title">Offline voting transaction generator</h1></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="cryptro-page-wrapper" id="cryptro-page-wrapper" >
+    <div class="cryptro-container" >
+    <form action="javascript:generate_transaction()">
+
+        <p>
+            This page has to be used on your offline secure computer. It will use your private key to create and sign a transaction, that you will be able to copy and paste online, without including any sensitive data, and send it to the EOS network.
+        </p>
+        <p>
+            Chain ID / block num. / ref. block prefix are required informations provided on franceos website voting page.
+        </p>
+
+        <div id="info_message"></div>
+
+        <p>
+            <label for="account_name" class="input-vote">Your Account Name</label>
+            <input type="text" name="account_name" id="account_name" value="" required>
+        </p>
+
+        <p>
+            <label for="private_key" class="input-vote">EOS Private Key</label>
+            <input type="text" name="private_key" id="private_key" autocomplete="off" value="" style="width: 700px;" required>
+        </p>
+
+        <p>
+            <label for="chainId" class="input-vote"><var>Chain ID</var></label>
+            <input type="text" name="chainId" id="chainId" value="" required style="width: 500px"><br>
+        </p>
+
+        <p>
+            <label for="block_num" class="input-vote"><var>Block num</var></label>
+            <input type="text" name="block_num" id="block_num" value="" required><br>
+        </p>
+
+        <p>
+            <label for="ref_block_prefix" class="input-vote"><var>Ref block prefix</var></label>
+            <input type="text" name="ref_block_prefix" id="ref_block_prefix" value="" required><br>
+        </p>
+
+        <p>
+            <label for="bp" class="input-vote">Block Producers</label>
+            <input type="text" name="bp" id="bp" value="franceosysbp" style="width: 700px;" placeholder="Coma separated list of block producers account names (no more than 30). Example: alpha, beta, gamma" required><br>
+            <span class="input-vote"></span>Franceos block producer name : <span class="top-announcement-bp-id">franceosysbp</span><br>
+            <span class="input-vote"></span>We also support: <span class="top-announcement-bp-id">blockmatrix1, saltblockeos, eosvenezuela, libertyblock, eosnationftw, tokenika4eos, teamgreymass, cryptolions1</span>. <a onclick="setFranceosBPList()">Support them !</a>
+        </p>
+
+        <input type="submit" value="Generate transaction">
+    </form>
+
+        <div id="transaction" style="display: none">
+            <br>Generated and signed <var>raw transaction</var>:
+            <textarea id="raw_transaction" style="width: 1000px; height: 400px; font-size: 0.7em;"></textarea>
+
+            <p><a onclick="copyRawTransaction()" >Copy</a> or write down the above raw transaction.</p>
+            <p>Next, go back to the online franceos vote page, to push this transaction to the network.</p>
+        </div>
+    </div>
+</div>
+
+<footer>
+    <div class="cryptro-footer-wrapper" >
+        <div class="cryptro-container clearfix" >
+            <div style="float:left;width:50%;">
+                <div class="widget_media_image">
+                    <img src="img/franceos-logo-footer1-24.svg"style="max-width: 100%; height: auto;" />
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="cryptro-copyright-wrapper" >
+        <div class="cryptro-copyright-container cryptro-container clearfix">
+            <div class="cryptro-copyright-left cryptro-item-pdlr">Copyright © 2018, All Right Reserved</div>
+        </div>
+    </div>
+</footer>
+</body>
+</html>
