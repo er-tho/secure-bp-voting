@@ -12,7 +12,7 @@
     <link rel='stylesheet' href='css/css.css' type='text/css' media='all' />
 
     <script src="js/eos.js" integrity="sha384-WNs0Z8GNG6GOaOTMk3Fogkdbx4/EbfCAeC8ecV5mxJq93CCnHS6tERnbwm3W15OF"></script>
-    <script src="js/tagify.min.js"></script>
+    <script src="js/tagify.js"></script>
 
     <script>
 
@@ -161,7 +161,7 @@
 
                         let account_name = result.processed.action_traces[0].act.data["voter"];
 
-                        document.getElementById('info_message').innerHTML = "Thank you for your vote to the EOS block produce !<br>"
+                        document.getElementById('info_message').innerHTML = "Thank you for your vote to the EOS block producer!<br>"
                             + "Account name: <a href=\"https://eosflare.io/account/" + account_name + "\">" + account_name + "</a>"
                             + " Transction ID: <a href=\"http://eosflare.io/tx/" + result.transaction_id + "\">" + result.transaction_id + "</a>";
                         document.getElementById('info_message').className = "success";
@@ -201,7 +201,7 @@
                 }
 
                 document.getElementById('account_name').value = result.account_names[0];
-                let account_message = "The account namme attached to the public key: ";
+                let account_message = "The account name attached to the public key: ";
                 let x = 0;
                 while (x < result.account_names.length) {
                     account_message += "<a href=\"https://eosflare.io/account/" + result.account_names[x] + "\" target='_blank'>" + result.account_names[x] + "</a>";
